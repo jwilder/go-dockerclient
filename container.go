@@ -382,6 +382,167 @@ func (c *Client) StartContainer(id string, hostConfig *HostConfig) error {
 	return nil
 }
 
+type NetworkStats struct {
+	RXBytes   uint64 `json:"rx_bytes"`
+	RXPackets uint64 `json:"rx_packets"`
+	RXErrors  uint64 `json:"rx_errors"`
+	RXDropped uint64 `json:"rx_dropped"`
+	TXBytes   uint64 `json:"tx_bytes"`
+	TXPackets uint64 `json:"tx_packets"`
+	TXErrors  uint64 `json:"tx_errors"`
+	TXDropped uint64 `json:"tx_dropped"`
+}
+
+type MemoryStats struct {
+	// current res_counter usage for memory
+	Usage uint64 `json:"usage"`
+	// maximum usage ever recorded.
+	MaxUsage uint64              `json:"max_usage"`
+	Stats    DetailedMemoryStats `json:"stats"`
+	// number of times memory usage hits limits.
+	Failcnt uint64 `json:"failcnt"`
+	Limit   uint64 `json:"limit"`
+}
+
+type DetailedMemoryStats struct {
+	ActiveAnont             uint64 `json:"active_anon"`
+	ActiveFile              uint64 `json:"active_file"`
+	Cache                   uint64 `json:"cache"`
+	HierarchicalMemoryLimit uint64 `json:"hierarchical_memory_limit"`
+	HierarchicalMemSWLimit  uint64 `json:"hierarchical_memsw_limit"`
+	InactiveAnon            uint64 `json:"inactive_anon"`
+	InactiveFile            uint64 `json:"inactive_file"`
+	MappedFile              uint64 `json:"mapped_file"`
+	Pgfault                 uint64 `json:"pgfault"`
+	PgmajFault              uint64 `json:"pgmajfault"`
+	Pgpgin                  uint64 `json:"pgpgin"`
+	Pgpgout                 uint64 `json:"pgpgout"`
+	Rss                     uint64 `json:"rss"`
+	RssHuge                 uint64 `json:"rss_huge"`
+	Swap                    uint64 `json:"swap"`
+	TotalActiveAnon         uint64 `json:"total_active_anon"`
+	TotalActiveFile         uint64 `json:"total_active_file"`
+	TotalCache              uint64 `json:"total_cache"`
+	TotalInactiveAnon       uint64 `json:"total_inactive_anon"`
+	TotalInactiveFile       uint64 `json:"total_inactive_file"`
+	TotalMappedFile         uint64 `json:"total_mapped_file"`
+	TotalPgFault            uint64 `json:"total_pgfault"`
+	TotalPgmajFault         uint64 `json:"total_pgmajfault"`
+	TotalPgpgin             uint64 `json:"total_pgpgin"`
+	TotalPgpgout            uint64 `json:"total_pgpgout"`
+	TotalRss                uint64 `json:"total_rss"`
+	TotalRssHuge            uint64 `json:"total_rss_huge"`
+	TotalSwap               uint64 `json:"total_swap"`
+	TotalUnevictable        uint64 `json:"total_unevictable"`
+	TotalWriteback          uint64 `json:"total_writeback"`
+	Unevictable             uint64 `json:"unevictable"`
+	Writeback               uint64 `json:"writeback"`
+}
+
+type BlkioStats struct {
+	// Number of bytes read and written
+	IOServicedBytesRecursive []BlkioStatEntry `json:"io_serviced_bytes_recursive"`
+	// Number of IO operations performed, regardless of size
+	IOServicedRecursive []BlkioStatEntry `json:"io_serviced_recursive"`
+	// Number of IO operations current queued
+	IOQueuedRecursive []BlkioStatEntry `json:"io_queue_recursive,omitempty"`
+	// Total amount of time between request dispatch and request completion for IO
+	IOServiceTimeRecursive []BlkioStatEntry `json:"io_service_time_recursive,omitempty"`
+	// Total amount of time spent waiting in the scheduler queues for service for IO
+	IOWaitTimeRecursive []BlkioStatEntry `json:"io_wait_time_recursive,omitempty"`
+	// Total number of blkios/requests merged into requests belonging to the cgroup
+	IOMergedRecursive []BlkioStatEntry `json:"io_merged_recursive,omitempty"`
+	// Disk time allocated to the cgroup per device in milliseconds
+	IOTimeRecursive []BlkioStatEntry `json:"io_time_recursive,omitempty"`
+	// Number of 512-bytes sectors read and written
+	SectorsRecursive []BlkioStatEntry `json:"sectors_recursive,omitempty"`
+}
+
+type BlkioStatEntry struct {
+	Major uint64 `json:"major,omitempty"`
+	Minor uint64 `json:"minor,omitempty"`
+	Op    string `json:"op,omitempty"`
+	Value uint64 `json:"value,omitempty"`
+}
+
+type CPUStats struct {
+	CpuUsage       CPUUsage       `json:"cpu_usage"`
+	SystemCpuUsage uint64         `json:"system_cpu_usage"`
+	ThrottlingData ThrottlingData `json:"throttling_data,omitempty"`
+}
+
+type ThrottlingData struct {
+	// Number of periods with throttling active
+	Periods uint64 `json:"periods,omitempty"`
+	// Number of periods when the container hit its throttling limit.
+	ThrottledPeriods uint64 `json:"throttled_periods,omitempty"`
+	// Aggregate time the container was throttled for in nanoseconds.
+	ThrottledTime uint64 `json:"throttled_time,omitempty"`
+}
+
+type CPUUsage struct {
+	// Total CPU time consumed.
+	// Units: nanoseconds.
+	TotalUsage uint64 `json:"total_usage"`
+	// Total CPU time consumed per core.
+	// Units: nanoseconds.
+	PercpuUsage []uint64 `json:"percpu_usage"`
+	// Time spent by tasks of the cgroup in kernel mode.
+	// Units: nanoseconds.
+	UsageInKernelmode uint64 `json:"usage_in_kernelmode"`
+	// Time spent by tasks of the cgroup in user mode.
+	// Units: nanoseconds.
+	UsageInUsermode uint64 `json:"usage_in_usermode"`
+}
+
+type ContainerStats struct {
+	Read    time.Time    `json:"read"`
+	Network NetworkStats `json:"network"`
+	Memory  MemoryStats  `json:"memory_stats"`
+	CPU     CPUStats     `json:"cpu_stats"`
+	BlockIO BlkioStats   `json:"blkio_stats"`
+}
+
+type statsWriter struct {
+	stats chan<- *ContainerStats
+}
+
+func (s *statsWriter) Write(b []byte) (int, error) {
+	var stat *ContainerStats
+	err := json.Unmarshal(b, &stat)
+	if err != nil {
+
+		return len(b), err
+	}
+	select {
+	case s.stats <- stat:
+	default:
+		// dropped
+	}
+	return len(b), nil
+}
+
+// StatsContainerOptions specifies the parameters to StatsContainer.
+type StatsContainerOptions struct {
+	Container string `qs:"-"`
+	Stats     chan<- *ContainerStats
+}
+
+// StatsContainer sends a continuous stream of container stats
+// over a Channel every second.  If the channel is slow,
+// messages will be dropped.
+func (c *Client) StatsContainer(opts StatsContainerOptions) error {
+	if opts.Container == "" {
+		return &NoSuchContainer{ID: opts.Container}
+	}
+	path := "/containers/" + opts.Container + "/stats"
+
+	w := &statsWriter{
+		stats: opts.Stats,
+	}
+	return c.stream("GET", path, true, true, nil, nil, w, nil)
+}
+
 // StopContainer stops a container, killing it after the given timeout (in
 // seconds).
 //
